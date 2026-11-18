@@ -24,7 +24,7 @@ export default function Studio() {
       `Headline: ${creative.headline}`,
       `Subheading: ${creative.subheading}`,
       `Audience: ${creative.audience}`,
-      `Platform: ${creative.platform} (${creative.ratio})`,
+      `Platform: ${creative.platform}`,
       `CTA: ${creative.cta}`,
     ].join('\n');
 
@@ -56,11 +56,8 @@ export default function Studio() {
           </p>
         </div>
 
-        {/* 2-Column Generator Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column: Form Controls */}
           <div className="lg:col-span-5 admint-card p-6 space-y-6">
-            {/* Product Description Textarea */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
                 Product description
@@ -73,7 +70,6 @@ export default function Studio() {
                 className="w-full bg-[#0b0c14] border border-[#202436] focus:border-admint-500 rounded-xl p-4 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors resize-none"
               />
 
-              {/* Sample Prompts */}
               <div className="pt-1">
                 <span className="text-[11px] font-semibold text-slate-400 block mb-2">Try a sample prompt:</span>
                 <div className="flex flex-wrap gap-2">
@@ -90,7 +86,6 @@ export default function Studio() {
               </div>
             </div>
 
-            {/* Target Age Group */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
                 Target age group
@@ -116,7 +111,6 @@ export default function Studio() {
               </div>
             </div>
 
-            {/* Platforms */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
                 Platforms
@@ -143,7 +137,6 @@ export default function Studio() {
               </div>
             </div>
 
-            {/* Generate Button */}
             <button
               onClick={handleGenerate}
               disabled={isGenerating || !promptInput.trim()}
@@ -163,7 +156,6 @@ export default function Studio() {
             </button>
           </div>
 
-          {/* Right Column: Output Showcase */}
           <div id="studio-output" className="lg:col-span-7 admint-card p-6 min-h-[480px] flex flex-col">
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-[#1c1f2e]">
               <h3 className="text-base font-bold text-white tracking-tight">Output</h3>
@@ -194,18 +186,32 @@ export default function Studio() {
                     key={item.id}
                     className="relative rounded-2xl overflow-hidden border border-[#272c44] bg-[#090a0f] flex flex-col justify-between group"
                   >
-                    <div className="aspect-[4/5] relative">
-                      <img
-                        src={item.imageUrl}
-                        alt={item.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      />
-                      <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md text-white text-[10px] font-bold uppercase flex items-center gap-1">
+                    <div className="aspect-[4/5] relative bg-[#171a29] flex items-center justify-center">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 border-2 border-admint-500 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                     <img
+  src={item.imageUrl}
+  alt={item.title}
+  onLoad={(e) => { e.target.style.opacity = 1; }}
+  onError={(e) => {
+    const tries = Number(e.target.dataset.tries || 0);
+    if (tries < 3) {
+      e.target.dataset.tries = tries + 1;
+      setTimeout(() => {
+        e.target.src = item.imageUrl + '&retry=' + (tries + 1);
+      }, 5000 * (tries + 1));
+    }
+  }}
+  style={{ opacity: 0, transition: 'opacity 0.6s ease' }}
+  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 relative z-10"
+/>
+                      <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md text-white text-[10px] font-bold uppercase flex items-center gap-1 z-20">
                         {item.type === 'video' ? <Video className="w-3 h-3 text-purple-400" /> : <Image className="w-3 h-3 text-purple-400" />}
                         <span>{item.type}</span>
                       </div>
 
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent p-4 flex flex-col justify-end">
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent p-4 flex flex-col justify-end z-20">
                         <span className="text-[10px] font-bold text-admint-400 tracking-wider uppercase">
                           {item.audience} · {item.platform}
                         </span>

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState } from 'react';
-import { generateCreativesFromPrompt, PRESET_CREATIVES } from '../data/campaignData';
+import { PRESET_CREATIVES } from '../data/campaignData';
+import { registerUser, loginUser, generateCampaign } from '../services/api';
 
 const CampaignContext = createContext();
 
@@ -19,15 +20,30 @@ export function CampaignProvider({ children }) {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleSignIn = (username, password) => {
-    if (!username) {
-      triggerToast('Please enter a username');
+  const handleRegister = async (name, email, password) => {
+    try {
+      const data = await registerUser(name, email, password);
+      triggerToast(`Account created! Please sign in.`);
+      return true;
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Registration failed';
+      triggerToast(msg);
       return false;
     }
-    setUser({ name: username });
-    setIsSignInOpen(false);
-    triggerToast(`Welcome back, ${username}!`);
-    return true;
+  };
+
+  const handleSignIn = async (email, password) => {
+    try {
+      const data = await loginUser(email, password);
+      setUser({ id: data.user_id, name: data.name });
+      setIsSignInOpen(false);
+      triggerToast(`Welcome back, ${data.name}!`);
+      return true;
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Login failed';
+      triggerToast(msg);
+      return false;
+    }
   };
 
   const handleSignOut = () => {
@@ -47,25 +63,56 @@ export function CampaignProvider({ children }) {
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!promptInput.trim()) {
       triggerToast('Please enter a product description brief.');
       return;
     }
 
-    setIsGenerating(true);
-    setTimeout(() => {
-      const results = generateCreativesFromPrompt(promptInput, selectedAgeGroup, selectedPlatforms);
-      setGeneratedCreatives(results);
-      setIsGenerating(false);
-      triggerToast(`Generated ${results.length} platform-tailored ad creatives!`);
+    if (!user) {
+      triggerToast('Please sign in first.');
+      setIsSignInOpen(true);
+      return;
+    }
 
-      // Scroll to generator output area
+    setIsGenerating(true);
+
+    try {
+      const platform = selectedPlatforms[0] || 'instagram';
+      const audience = selectedAgeGroup;
+      const budget = '5000';
+
+      const data = await generateCampaign(user.id, promptInput, platform, audience, budget);
+
+      const mapped = data.variants.map((v, idx) => ({
+        id: v.id,
+        title: v.angle,
+        headline: v.headline,
+        subheading: v.caption,
+        cta: v.cta,
+        type: 'image',
+        audience: data.audience,
+        platform: data.platform,
+        imageUrl: v.image_url,
+        tag: `@adgenie.${data.platform}`,
+        hashtags: v.hashtags,
+        score: v.score,
+        tips: v.tips,
+      }));
+
+      setGeneratedCreatives(mapped);
+      triggerToast(`Generated ${mapped.length} platform-tailored ad creatives!`);
+
       const outputElem = document.getElementById('studio-output');
       if (outputElem) {
         outputElem.scrollIntoView({ behavior: 'smooth' });
       }
-    }, 1200);
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Generation failed. Please try again.';
+      triggerToast(msg);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -85,6 +132,7 @@ export function CampaignProvider({ children }) {
         generatedCreatives,
         isGenerating,
         handleSignIn,
+        handleRegister,
         handleSignOut,
         handleGenerate,
         toastMessage,
