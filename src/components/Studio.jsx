@@ -76,20 +76,16 @@ const creativeToText = (c) =>
 
 /* --------------------------- single ad card --------------------------- */
 
+// The parent gives this component a key that includes the image URL, so a new
+// image remounts the card with fresh state. That removes the need for a
+// "reset" effect, which was overwriting 'loaded' with 'loading'.
 function AdCard({ item, onDownloadImage, onExportText, onRetryGenerate }) {
   const baseUrl = getImageUrl(item);
   const [src, setSrc] = useState(baseUrl);
-  const [status, setStatus] = useState('loading'); // loading | loaded | failed
+  const [status, setStatus] = useState(baseUrl ? 'loading' : 'failed'); // loading | loaded | failed
   const tries = useRef(0);
   const timer = useRef(null);
-
-  // Reset when a new image arrives (e.g. after Regenerate)
-  useEffect(() => {
-    tries.current = 0;
-    setSrc(baseUrl);
-    setStatus('loading');
-    return () => clearTimeout(timer.current);
-  }, [baseUrl]);
+  const imgRef = useRef(null);
 
   const handleError = () => {
     // Base64 images are not retryable: if they fail to decode, they are broken.
@@ -103,6 +99,18 @@ function AdCard({ item, onDownloadImage, onExportText, onRetryGenerate }) {
       setSrc(addParam(baseUrl, 'retry', attempt));
     }, 5000 * attempt);
   };
+
+  // Covers images that finished (or failed) before React attached onLoad/onError,
+  // which is common for cached images and base64 data URIs.
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete) {
+      if (img.naturalWidth > 0) setStatus('loaded');
+      else handleError();
+    }
+    return () => clearTimeout(timer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-[#272c44] bg-[#090a0f] flex flex-col justify-between group">
@@ -129,6 +137,7 @@ function AdCard({ item, onDownloadImage, onExportText, onRetryGenerate }) {
         ) : (
           baseUrl && (
             <img
+              ref={imgRef}
               src={src}
               alt={item.title || item.headline}
               onLoad={() => setStatus('loaded')}
@@ -370,8 +379,8 @@ export default function Studio() {
                       key={age.id}
                       onClick={() => setSelectedAgeGroup(age.id)}
                       className={`p-3 rounded-xl border text-left transition-all ${isSelected
-                          ? 'bg-admint-500/15 border-admint-500 text-white'
-                          : 'bg-[#0b0c14] border-[#202436] text-slate-400 hover:border-slate-700'
+                        ? 'bg-admint-500/15 border-admint-500 text-white'
+                        : 'bg-[#0b0c14] border-[#202436] text-slate-400 hover:border-slate-700'
                         }`}
                     >
                       <div className="text-sm font-bold text-white">{age.name}</div>
@@ -394,8 +403,8 @@ export default function Studio() {
                       key={plat.id}
                       onClick={() => togglePlatform(plat.id)}
                       className={`px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all ${isSelected
-                          ? 'bg-admint-500/20 border-admint-500 text-white'
-                          : 'bg-[#0b0c14] border-[#202436] text-slate-400 hover:border-slate-700'
+                        ? 'bg-admint-500/20 border-admint-500 text-white'
+                        : 'bg-[#0b0c14] border-[#202436] text-slate-400 hover:border-slate-700'
                         }`}
                     >
                       {isSelected && <Check className="w-3.5 h-3.5 text-admint-400" />}
@@ -484,7 +493,8 @@ export default function Studio() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
                 {generatedCreatives.map((item) => (
                   <AdCard
-                    key={item.id}
+                    // key includes the URL so a new image remounts the card with fresh state
+                    key={`${item.id}-${getImageUrl(item)}`}
                     item={item}
                     onDownloadImage={handleDownloadImage}
                     onExportText={handleExportText}
