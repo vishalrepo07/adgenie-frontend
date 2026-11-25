@@ -12,7 +12,17 @@ import {
   Images,
   Package,
   AlertTriangle,
+  History as HistoryIcon,
+  ChevronDown,
+  Search,
+  Copy,
 } from 'lucide-react';
+
+/* ----------------------------- config ----------------------------- */
+
+// Change this to your backend URL (and make sure CORS allows your frontend origin).
+const API_BASE = 'http://localhost:8000';
+const HISTORY_PAGE_SIZE = 5;
 
 /* ----------------------------- helpers ----------------------------- */
 
@@ -73,6 +83,21 @@ const creativeToText = (c) =>
     `Platform: ${c.platform || ''}`,
     `CTA: ${c.cta || ''}`,
   ].join('\n');
+
+// History images come from the backend as a data URI, a URL, or raw base64.
+const toImageSrc = (url) => {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('http')) return url;
+  return `data:image/png;base64,${url}`;
+};
+
+const formatDate = (iso) => {
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso || '';
+  }
+};
 
 /* --------------------------- single ad card --------------------------- */
 
@@ -194,6 +219,272 @@ function AdCard({ item, onDownloadImage, onExportText, onRetryGenerate }) {
   );
 }
 
+/* ------------------------- history: variant card ------------------------- */
+
+function HistoryVariant({ variant }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const src = toImageSrc(variant.image_url);
+
+  return (
+    <div className="rounded-xl overflow-hidden border border-[#272c44] bg-[#090a0f] flex flex-col">
+      <div className="aspect-[4/5] bg-[#171a29] relative flex items-center justify-center">
+        {src && !imgFailed ? (
+          <img
+            src={src}
+            alt={variant.headline || 'Ad variant'}
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-1 text-slate-500">
+            <Image className="w-6 h-6" />
+            <span className="text-[11px]">No image</span>
+          </div>
+        )}
+
+        {variant.angle && (
+          <span className="absolute top-2 left-2 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md text-white text-[10px] font-bold uppercase">
+            {variant.angle}
+          </span>
+        )}
+        {variant.score != null && (
+          <span className="absolute top-2 right-2 px-2 py-1 rounded-md bg-admint-500/90 text-white text-[10px] font-extrabold">
+            Score {variant.score}
+          </span>
+        )}
+      </div>
+
+      <div className="p-3.5 space-y-2.5 flex-1">
+        {variant.headline && (
+          <h5 className="text-sm font-black text-white leading-tight uppercase">{variant.headline}</h5>
+        )}
+        {variant.caption && (
+          <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">{variant.caption}</p>
+        )}
+        {variant.cta && (
+          <span className="inline-block px-2.5 py-1 rounded bg-white text-slate-950 text-[9px] font-extrabold tracking-wider">
+            {variant.cta}
+          </span>
+        )}
+
+        {variant.hashtags?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {variant.hashtags.map((tag, i) => (
+              <span key={i} className="text-[10px] text-admint-400 bg-admint-500/10 px-1.5 py-0.5 rounded">
+                #{tag.replace(/^#/, '')}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {variant.tips?.length > 0 && (
+          <ul className="text-[11px] text-slate-400 space-y-1 list-disc list-inside">
+            {variant.tips.map((tip, i) => (
+              <li key={i}>{tip}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- history: main panel ------------------------- */
+
+function HistoryPanel({ onReuse }) {
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [userName, setUserName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [searched, setSearched] = useState(false);
+  const [openIds, setOpenIds] = useState({});
+
+  const fetchHistory = async (pageNum, append) => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(
+        `${API_BASE}/campaigns/history?page=${pageNum}&page_size=${HISTORY_PAGE_SIZE}&include_images=true`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), name: name.trim() }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 404) throw new Error('No user found with this email and name.');
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Something went wrong. Please try again.');
+      }
+
+      const data = await res.json();
+      setItems((prev) => (append ? [...prev, ...data.items] : data.items));
+      setTotal(data.total);
+      setPage(data.page);
+      setUserName(data.user_name);
+      setSearched(true);
+
+      // Open the newest campaign automatically on a fresh search.
+      if (!append && data.items.length > 0) setOpenIds({ [data.items[0].id]: true });
+    } catch (err) {
+      if (!append) {
+        setItems([]);
+        setTotal(0);
+        setSearched(false);
+      }
+      setError(err.message || 'Could not reach the server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!email.trim() || !name.trim() || loading) return;
+    fetchHistory(1, false);
+  };
+
+  const toggleOpen = (id) => setOpenIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  const hasMore = items.length < total;
+
+  return (
+    <div id="studio-history" className="admint-card p-6 space-y-6">
+      <div className="flex items-center gap-3 pb-4 border-b border-[#1c1f2e]">
+        <div className="w-9 h-9 rounded-xl bg-[#171a29] text-admint-400 flex items-center justify-center">
+          <HistoryIcon className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-white tracking-tight">Campaign history</h3>
+          <p className="text-xs text-slate-400">Enter your email and name to see your previous campaigns.</p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          required
+          className="md:col-span-5 bg-[#0b0c14] border border-[#202436] focus:border-admint-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors"
+        />
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name"
+          required
+          className="md:col-span-4 bg-[#0b0c14] border border-[#202436] focus:border-admint-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors"
+        />
+        <button
+          type="submit"
+          disabled={loading || !email.trim() || !name.trim()}
+          className="md:col-span-3 py-3 rounded-xl bg-admint-500 hover:bg-admint-600 active:scale-95 disabled:opacity-50 disabled:pointer-events-none text-white font-bold text-sm flex items-center justify-center gap-2 transition-all"
+        >
+          {loading && !items.length ? (
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          ) : (
+            <Search className="w-4 h-4" />
+          )}
+          <span>View history</span>
+        </button>
+      </form>
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {searched && !error && items.length === 0 && (
+        <div className="border-2 border-dashed border-[#202436] rounded-xl p-8 text-center text-sm text-slate-400">
+          No campaigns yet for {userName || 'this user'}. Generate your first one above.
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <div className="space-y-4">
+          <p className="text-xs text-slate-400">
+            Showing {items.length} of {total} campaign{total === 1 ? '' : 's'} for{' '}
+            <span className="text-white font-semibold">{userName}</span>
+          </p>
+
+          {items.map((campaign) => {
+            const isOpen = !!openIds[campaign.id];
+            return (
+              <div key={campaign.id} className="rounded-2xl border border-[#272c44] bg-[#0b0c14] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleOpen(campaign.id)}
+                  className="w-full flex items-start justify-between gap-4 p-4 text-left hover:bg-[#10121d] transition-colors"
+                >
+                  <div className="space-y-1.5 min-w-0">
+                    <p className="text-sm font-bold text-white line-clamp-2">{campaign.product_description}</p>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                      <span className="uppercase font-bold text-admint-400">{campaign.platform}</span>
+                      <span>Audience: {campaign.audience}</span>
+                      <span>Budget: {campaign.budget}</span>
+                      <span>{formatDate(campaign.created_at)}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-[#171a29] text-slate-300 uppercase text-[10px] font-bold">
+                        {campaign.status}
+                      </span>
+                      <span>{campaign.ad_variants.length} variant{campaign.ad_variants.length === 1 ? '' : 's'}</span>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    className={`w-5 h-5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {isOpen && (
+                  <div className="p-4 pt-0 space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => onReuse(campaign)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161826] hover:bg-[#1f2438] border border-[#24293f] text-slate-200 text-xs font-semibold transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Reuse this brief</span>
+                    </button>
+
+                    {campaign.ad_variants.length === 0 ? (
+                      <p className="text-xs text-slate-500">No ad variants saved for this campaign.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {campaign.ad_variants.map((v) => (
+                          <HistoryVariant key={v.id} variant={v} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {hasMore && (
+            <button
+              type="button"
+              onClick={() => fetchHistory(page + 1, true)}
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-[#161826] hover:bg-[#1f2438] border border-[#24293f] disabled:opacity-50 text-slate-200 text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+            >
+              {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+              <span>Load more</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------ main page ------------------------------ */
 
 export default function Studio() {
@@ -211,6 +502,13 @@ export default function Studio() {
   } = useCampaign();
 
   const [isExporting, setIsExporting] = useState(false);
+
+  /* ---- history: copy an old brief into the generator ---- */
+  const handleReuseBrief = (campaign) => {
+    setPromptInput(campaign.product_description);
+    document.getElementById('studio')?.scrollIntoView({ behavior: 'smooth' });
+    triggerToast('Brief loaded into the generator.');
+  };
 
   /* ---- per-ad: download image ---- */
   const handleDownloadImage = async (creative) => {
@@ -505,6 +803,9 @@ export default function Studio() {
             )}
           </div>
         </div>
+
+        {/* ------------------------- history ------------------------- */}
+        <HistoryPanel onReuse={handleReuseBrief} />
       </div>
     </section>
   );
